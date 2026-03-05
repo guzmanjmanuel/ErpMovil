@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Env / secrets
+.env
+.env.*
+*.env
+.mcp.json
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# Logs
+*.log
