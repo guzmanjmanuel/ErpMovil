@@ -15,6 +15,9 @@ class TokenResponse(BaseModel):
     email: str
     rol: str
     tenant_id: int
+    tipo_negocio: str = "restaurante"
+    establecimiento_id: int | None = None
+    permisos: list[str] = []
 
 
 class UsuarioOut(BaseModel):

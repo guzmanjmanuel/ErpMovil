@@ -25,6 +25,8 @@ from models.dte import (
     DteCorrelativo, DteAuditLog,
 )
 from models.contribuyente import DirectorioCliente, Contribuyente
+from models.tenant import Tenant
+from models.establecimiento import Establecimiento
 from schemas.dte import DteCreate
 
 IVA_RATE = Decimal("0.13")
@@ -212,6 +214,21 @@ def calcular_resumen(
     }
 
 
+def _get_tenant_ambiente(db: Session, tenant_id: int) -> str:
+    """Lee el ambiente configurado en el tenant (CAT-001: 00=prueba, 01=produccion)."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    return tenant.ambiente if tenant else "00"
+
+
+def _get_establecimiento_principal(db: Session, tenant_id: int) -> Establecimiento | None:
+    """Retorna el establecimiento marcado como principal del tenant."""
+    return db.query(Establecimiento).filter(
+        Establecimiento.tenant_id == tenant_id,
+        Establecimiento.es_principal == True,
+        Establecimiento.activo == True,
+    ).first()
+
+
 def crear_dte(db: Session, tenant_id: int, usuario_id: int, data: DteCreate, emisor_id: int) -> DteIdentificacion:
     """Crea el DTE completo en base de datos (estado BORRADOR)."""
 
@@ -221,6 +238,9 @@ def crear_dte(db: Session, tenant_id: int, usuario_id: int, data: DteCreate, emi
     if not tipo:
         from fastapi import HTTPException
         raise HTTPException(400, f"Tipo de DTE '{data.tipo_dte}' no existe")
+
+    # Ambiente desde configuración del tenant (CAT-001)
+    ambiente = _get_tenant_ambiente(db, tenant_id)
 
     # Resolver receptor
     receptor_id = None
@@ -238,7 +258,7 @@ def crear_dte(db: Session, tenant_id: int, usuario_id: int, data: DteCreate, emi
         tenant_id=tenant_id,
         tipo_dte=data.tipo_dte,
         version=tipo.version,
-        ambiente=data.ambiente,
+        ambiente=ambiente,   # Leído del tenant, no del request
         codigo_generacion=uuid.uuid4(),
         tipo_modelo=1,
         tipo_operacion=1,
@@ -396,8 +416,12 @@ def emitir_dte(db: Session, tenant_id: int, usuario_id: int, dte: DteIdentificac
         from fastapi import HTTPException
         raise HTTPException(400, f"Solo se pueden emitir DTEs en estado BORRADOR. Estado actual: {dte.estado}")
 
-    correlativo = _siguiente_correlativo(db, tenant_id, dte.tipo_dte)
-    dte.numero_control = _num_control(dte.tipo_dte, "00000000", correlativo)
+    # Usar cod_estable del establecimiento principal; fallback a "00000000"
+    estab = _get_establecimiento_principal(db, tenant_id)
+    cod_estable = (estab.cod_estable or "00000000") if estab else "00000000"
+
+    correlativo = _siguiente_correlativo(db, tenant_id, dte.tipo_dte, cod_estable)
+    dte.numero_control = _num_control(dte.tipo_dte, cod_estable, correlativo)
     dte.estado = "EMITIDO"
 
     db.add(DteAuditLog(

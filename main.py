@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
 
-from routers import auth, menu, mesas, pedidos, caja, kds, facturacion, clientes
+from routers import auth, menu, mesas, pedidos, caja, kds, facturacion, clientes, usuarios, tenants, establecimientos, catalogos
 
 app = FastAPI(
     title="ErpMovil API",
@@ -12,12 +12,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(auth.router)
+app.include_router(tenants.router)
 app.include_router(menu.router)
 app.include_router(mesas.router)
 app.include_router(pedidos.router)
@@ -25,6 +26,9 @@ app.include_router(caja.router)
 app.include_router(kds.router)
 app.include_router(clientes.router)
 app.include_router(facturacion.router)
+app.include_router(usuarios.router)
+app.include_router(establecimientos.router)
+app.include_router(catalogos.router)
 
 
 @app.get("/", tags=["Health"])

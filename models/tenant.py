@@ -9,6 +9,8 @@ class Tenant(Base):
     id = Column(Integer, primary_key=True)
     nombre = Column(String(200), nullable=False)
     plan = Column(String(20), nullable=False, default="basico")
+    tipo = Column(String(20), nullable=False, default="restaurante")
+    ambiente = Column(String(2), nullable=False, default="00")  # CAT-001: 00=prueba 01=produccion
     activo = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -8,6 +8,9 @@ import Pedidos   from './pages/Pedidos'
 import Menu      from './pages/Menu'
 import Caja      from './pages/Caja'
 import KDS       from './pages/KDS'
+import Usuarios  from './pages/Usuarios'
+import Negocios         from './pages/Negocios'
+import Establecimientos from './pages/Establecimientos'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
@@ -32,7 +35,10 @@ export default function App() {
             <Route path="pedidos" element={<Pedidos />}   />
             <Route path="menu"    element={<Menu />}      />
             <Route path="caja"    element={<Caja />}      />
-            <Route path="kds"     element={<KDS />}       />
+            <Route path="kds"      element={<KDS />}      />
+            <Route path="usuarios"  element={<Usuarios />}  />
+            <Route path="negocios"          element={<Negocios />}          />
+            <Route path="establecimientos"  element={<Establecimientos />}  />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

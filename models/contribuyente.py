@@ -26,7 +26,7 @@ class Contribuyente(Base):
     desc_actividad = Column(String(250))
     telefono = Column(String(30))
     correo = Column(String(100))
-    direccion_id = Column(Integer, ForeignKey("direcciones.id"))
+    direccion_id = Column(Integer)   # FK a direcciones, gestionada en DB
     activo = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

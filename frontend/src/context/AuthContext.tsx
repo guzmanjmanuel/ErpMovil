@@ -7,6 +7,9 @@ interface AuthUser {
   email: string
   rol: string
   tenant_id: number
+  tipo_negocio: 'restaurante' | 'pos'
+  establecimiento_id: number | null
+  permisos: string[]
   access_token: string
 }
 
@@ -14,6 +17,7 @@ interface AuthContextType {
   user: AuthUser | null
   login: (email: string, password: string, tenant_id: number) => Promise<void>
   logout: () => void
+  can: (permiso: string) => boolean
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -37,8 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  function can(permiso: string): boolean {
+    if (!user) return false
+    if (user.rol === 'admin') return true
+    return user.permisos.includes(permiso)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, can }}>
       {children}
     </AuthContext.Provider>
   )
