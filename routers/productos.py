@@ -694,6 +694,7 @@ class ImportarFilaProducto(BaseModel):
     codigo: str
     nombre: str
     descripcion: Optional[str] = None
+    categoria_id: Optional[int] = None
     tipo_item: int = 1                   # CAT-011
     unidad_medida_id: int = 36           # 36=Unidad por defecto
     metodo_costo: str = "PROMEDIO"
@@ -752,6 +753,7 @@ def importar_productos(
                 codigo=fila.codigo.strip(),
                 nombre=fila.nombre.strip(),
                 descripcion=fila.descripcion,
+                categoria_id=fila.categoria_id,
                 tipo_item=fila.tipo_item,
                 unidad_medida_id=fila.unidad_medida_id,
                 metodo_costo=fila.metodo_costo.upper(),
