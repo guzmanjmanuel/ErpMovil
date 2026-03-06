@@ -56,8 +56,8 @@ export default function Layout() {
             </span>
           </div>
           <p className="text-white/70 text-xs truncate">{user?.nombre}</p>
-          <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full text-white font-medium ${ROL_COLOR[user?.rol ?? ''] ?? 'bg-white/20'}`}>
-            {user?.rol}
+          <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full text-white font-medium ${user?.is_superadmin ? 'bg-purple-500' : (ROL_COLOR[user?.rol ?? ''] ?? 'bg-white/20')}`}>
+            {user?.is_superadmin ? 'Superadmin' : user?.rol}
           </span>
         </div>
 

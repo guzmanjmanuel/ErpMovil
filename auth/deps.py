@@ -22,11 +22,25 @@ def get_current_user(token: str = Depends(get_token), db: Session = Depends(get_
     return user
 
 
+def _superadmin_tu(tenant_id: int, usuario_id: int) -> TenantUsuario:
+    """Crea un TenantUsuario virtual con rol admin para superadmins."""
+    tu = TenantUsuario()
+    tu.tenant_id = tenant_id
+    tu.usuario_id = usuario_id
+    tu.rol = "admin"
+    tu.activo = True
+    tu.establecimiento_id = None
+    return tu
+
+
 def get_tenant_user(
     tenant_id: int,
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TenantUsuario:
+    if current_user.is_superadmin:
+        return _superadmin_tu(tenant_id, current_user.id)
+
     tu = db.query(TenantUsuario).filter(
         TenantUsuario.tenant_id == tenant_id,
         TenantUsuario.usuario_id == current_user.id,
@@ -43,6 +57,9 @@ def require_rol(*roles: str):
         current_user: Usuario = Depends(get_current_user),
         db: Session = Depends(get_db),
     ) -> TenantUsuario:
+        if current_user.is_superadmin:
+            return _superadmin_tu(tenant_id, current_user.id)
+
         tu = db.query(TenantUsuario).filter(
             TenantUsuario.tenant_id == tenant_id,
             TenantUsuario.usuario_id == current_user.id,
