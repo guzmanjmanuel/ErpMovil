@@ -36,6 +36,8 @@ interface FilaImport {
   codigo: string
   nombre: string
   descripcion?: string
+  categoria_id?: number | null
+  _cat_nombre?: string       // nombre legible para preview
   tipo_item: number
   unidad_medida_id: number
   metodo_costo: string
@@ -50,6 +52,7 @@ interface FilaImport {
   codigo_barra?: string
   tipo_barra: string
   _error?: string
+  _warn?: string             // advertencia no bloqueante (ej: categoría no encontrada)
 }
 
 const METODOS = ['PROMEDIO', 'FIFO', 'LIFO']
@@ -122,33 +125,79 @@ export default function Productos() {
   function descargarPlantilla() {
     const headers = [
       'codigo', 'nombre', 'descripcion',
+      'categoria', 'sub_categoria',
       'tipo_item', 'unidad_medida_id', 'metodo_costo',
       'precio_venta', 'costo_referencia', 'stock_minimo', 'stock_maximo',
       'exento', 'no_sujeto', 'usa_lotes', 'usa_vencimiento',
       'codigo_barra', 'tipo_barra',
     ]
+
+    // Determinar ejemplo de categoría tomando la primera disponible
+    const raices = categorias.filter(c => c.padre_id === null)
+    const ejCat    = raices[0]?.nombre ?? 'Bebidas'
+    const ejSubCat = categorias.find(c => c.padre_id === raices[0]?.id)?.nombre ?? 'Agua'
+
     const ejemplo = [
       'PROD-001', 'Agua purificada 500ml', 'Botella de agua purificada 500ml',
-      1, 25, 'PROMEDIO',
+      ejCat, ejSubCat,
+      1, 36, 'PROMEDIO',
       0.75, 0.40, 50, 1000,
       'NO', 'NO', 'NO', 'NO',
       '7501234567890', 'EAN13',
     ]
+
     const instrucciones = [
-      '* tipo_item: 1=Bienes | 2=Servicios | 3=Ambos | 4=Otros tributos',
-      '* unidad_medida_id: 25=Botella | 26=Kilogramo | 27=Libra | 36=Unidad | 41=Hora | 53=Servicio',
-      '* metodo_costo: PROMEDIO | FIFO | LIFO',
-      '* exento / no_sujeto / usa_lotes / usa_vencimiento: SI o NO',
-      '* tipo_barra: EAN13 | UPC | QR | INTERNO',
+      ['Campo', 'Descripción', 'Valores válidos'],
+      ['codigo', 'Código único del producto', 'Texto (requerido)'],
+      ['nombre', 'Nombre del producto', 'Texto (requerido)'],
+      ['descripcion', 'Descripción opcional', 'Texto'],
+      ['categoria', 'Nombre exacto de la categoría principal', 'Ver hoja Categorías'],
+      ['sub_categoria', 'Nombre exacto de la sub-categoría', 'Ver hoja Categorías'],
+      ['tipo_item', 'Tipo de ítem CAT-011', '1=Bienes | 2=Servicios | 3=Ambos | 4=Otros tributos'],
+      ['unidad_medida_id', 'Unidad de medida CAT-014', '25=Botella | 26=Kg | 27=Lb | 36=Unidad | 41=Hora | 53=Servicio'],
+      ['metodo_costo', 'Método de costeo', 'PROMEDIO | FIFO | LIFO'],
+      ['precio_venta', 'Precio de venta (USD)', 'Número decimal (ej: 1.50)'],
+      ['costo_referencia', 'Costo de referencia (USD)', 'Número decimal'],
+      ['stock_minimo', 'Stock mínimo', 'Número'],
+      ['stock_maximo', 'Stock máximo', 'Número'],
+      ['exento', 'Exento de IVA', 'SI | NO'],
+      ['no_sujeto', 'No sujeto a IVA', 'SI | NO'],
+      ['usa_lotes', 'Maneja lotes/batches', 'SI | NO'],
+      ['usa_vencimiento', 'Tiene fecha de vencimiento', 'SI | NO'],
+      ['codigo_barra', 'Código de barras', 'Texto'],
+      ['tipo_barra', 'Tipo de código de barras', 'EAN13 | UPC | QR | INTERNO'],
     ]
+
     const wb = XLSX.utils.book_new()
+
+    // Hoja Productos
     const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo])
-    ws['!cols'] = headers.map(() => ({ wch: 22 }))
+    ws['!cols'] = headers.map(h => ({ wch: ['descripcion', 'categoria', 'sub_categoria'].includes(h) ? 28 : 20 }))
     XLSX.utils.book_append_sheet(wb, ws, 'Productos')
-    // Hoja de instrucciones
-    const wsInfo = XLSX.utils.aoa_to_sheet(instrucciones.map(l => [l]))
-    wsInfo['!cols'] = [{ wch: 80 }]
+
+    // Hoja Categorías — listado para referencia
+    const catHeaders = ['categoria', 'sub_categoria']
+    const catRows: string[][] = []
+    for (const raiz of raices) {
+      const subs = categorias.filter(c => c.padre_id === raiz.id)
+      if (subs.length === 0) {
+        catRows.push([raiz.nombre, ''])
+      } else {
+        for (const sub of subs) {
+          catRows.push([raiz.nombre, sub.nombre])
+        }
+      }
+    }
+    if (catRows.length === 0) catRows.push(['(Sin categorías registradas — créalas primero)', ''])
+    const wsCat = XLSX.utils.aoa_to_sheet([catHeaders, ...catRows])
+    wsCat['!cols'] = [{ wch: 30 }, { wch: 30 }]
+    XLSX.utils.book_append_sheet(wb, wsCat, 'Categorías')
+
+    // Hoja Instrucciones
+    const wsInfo = XLSX.utils.aoa_to_sheet(instrucciones)
+    wsInfo['!cols'] = [{ wch: 22 }, { wch: 40 }, { wch: 50 }]
     XLSX.utils.book_append_sheet(wb, wsInfo, 'Instrucciones')
+
     XLSX.writeFile(wb, 'plantilla_productos.xlsx')
   }
 
@@ -171,6 +220,38 @@ export default function Productos() {
         return isNaN(n) ? undefined : n
       }
 
+      // Función para resolver categoria_id por nombre de categoría y sub-categoría
+      function resolverCategoria(catNombre: string, subNombre: string): {
+        categoria_id: number | null
+        _cat_nombre: string
+        _warn?: string
+      } {
+        const cat = catNombre.trim()
+        const sub = subNombre.trim()
+        if (!cat && !sub) return { categoria_id: null, _cat_nombre: '' }
+
+        // Buscar sub-categoría primero (más específico)
+        if (sub) {
+          const raiz = categorias.find(c => c.padre_id === null && c.nombre.toLowerCase() === cat.toLowerCase())
+          const subCat = categorias.find(c =>
+            c.padre_id !== null &&
+            c.nombre.toLowerCase() === sub.toLowerCase() &&
+            (!raiz || c.padre_id === raiz.id)
+          )
+          if (subCat) return { categoria_id: subCat.id, _cat_nombre: `${raiz?.nombre ?? cat} > ${subCat.nombre}` }
+          return {
+            categoria_id: raiz?.id ?? null,
+            _cat_nombre: cat + (sub ? ` > ${sub}` : ''),
+            _warn: `Sub-categoría "${sub}" no encontrada${raiz ? `, usando "${raiz.nombre}"` : ''}`,
+          }
+        }
+
+        // Solo categoría raíz
+        const raiz = categorias.find(c => c.padre_id === null && c.nombre.toLowerCase() === cat.toLowerCase())
+        if (raiz) return { categoria_id: raiz.id, _cat_nombre: raiz.nombre }
+        return { categoria_id: null, _cat_nombre: cat, _warn: `Categoría "${cat}" no encontrada` }
+      }
+
       const filas: FilaImport[] = rows.map((row, i) => {
         const codigo = String(row['codigo'] ?? '').trim()
         const nombre = String(row['nombre'] ?? '').trim()
@@ -178,11 +259,18 @@ export default function Productos() {
         if (!codigo) _error = 'Código vacío'
         else if (!nombre) _error = 'Nombre vacío'
 
+        const { categoria_id, _cat_nombre, _warn } = resolverCategoria(
+          String(row['categoria'] ?? ''),
+          String(row['sub_categoria'] ?? ''),
+        )
+
         return {
           _fila: i + 2,
           codigo,
           nombre,
           descripcion: String(row['descripcion'] ?? '').trim() || undefined,
+          categoria_id,
+          _cat_nombre,
           tipo_item: parseInt(String(row['tipo_item'] ?? '1')) || 1,
           unidad_medida_id: parseInt(String(row['unidad_medida_id'] ?? '36')) || 36,
           metodo_costo: ['FIFO', 'LIFO', 'PROMEDIO'].includes(String(row['metodo_costo']).toUpperCase())
@@ -199,6 +287,7 @@ export default function Productos() {
           codigo_barra: String(row['codigo_barra'] ?? '').trim() || undefined,
           tipo_barra: String(row['tipo_barra'] ?? 'EAN13').trim() || 'EAN13',
           _error,
+          _warn,
         }
       })
       setFilasImport(filas)
@@ -216,7 +305,7 @@ export default function Productos() {
     try {
       const result = await api.post<{ importados: number; omitidos: number; errores: string[] }>(
         `/tenants/${tenantId}/productos/importar`,
-        validas.map(({ _fila: _, _error: __, ...rest }) => rest),
+        validas.map(({ _fila: _, _error: __, _cat_nombre: ___, _warn: ____, ...rest }) => rest),
       )
       setImportResult(result)
       reload()
@@ -905,6 +994,7 @@ function ModalImport({
                   <th className="px-3 py-2 text-left">Fila</th>
                   <th className="px-3 py-2 text-left">Código</th>
                   <th className="px-3 py-2 text-left">Nombre</th>
+                  <th className="px-3 py-2 text-left">Categoría</th>
                   <th className="px-3 py-2 text-center">Tipo</th>
                   <th className="px-3 py-2 text-right">Precio</th>
                   <th className="px-3 py-2 text-center">Método</th>
@@ -917,6 +1007,14 @@ function ModalImport({
                     <td className="px-3 py-2 text-gray-400">{f._fila}</td>
                     <td className="px-3 py-2 font-mono">{f.codigo || '—'}</td>
                     <td className="px-3 py-2 font-medium">{f.nombre || '—'}</td>
+                    <td className="px-3 py-2 max-w-[160px]">
+                      {f._cat_nombre
+                        ? <span className="text-gray-700">{f._cat_nombre}</span>
+                        : <span className="text-gray-300">—</span>}
+                      {f._warn && (
+                        <span className="block text-[10px] text-amber-600 bg-amber-50 rounded px-1 mt-0.5 leading-tight">{f._warn}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-center">{f.tipo_item}</td>
                     <td className="px-3 py-2 text-right font-mono">
                       {f.precio_venta != null ? `$${f.precio_venta.toFixed(2)}` : '—'}
