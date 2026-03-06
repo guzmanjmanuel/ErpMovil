@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
 
-from routers import auth, menu, mesas, pedidos, caja, kds, facturacion, clientes, usuarios, tenants, establecimientos, catalogos, productos, inventario
+from routers import auth, menu, mesas, pedidos, caja, kds, facturacion, clientes, usuarios, tenants, establecimientos, catalogos, productos, inventario, recetas
 
 app = FastAPI(
     title="ErpMovil API",
@@ -31,6 +31,7 @@ app.include_router(establecimientos.router)
 app.include_router(catalogos.router)
 app.include_router(productos.router)
 app.include_router(inventario.router)
+app.include_router(recetas.router)
 
 
 @app.get("/", tags=["Health"])

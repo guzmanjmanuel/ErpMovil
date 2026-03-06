@@ -4,6 +4,15 @@ from decimal import Decimal
 from datetime import datetime
 
 
+class ComponenteElegidoIn(BaseModel):
+    grupo_id: int
+    opcion_original_id: Optional[int] = None
+    opcion_elegida_id: Optional[int] = None   # None = rechazado
+    cantidad: Decimal = Decimal("1")
+    accion: str = "INCLUIDO"                  # INCLUIDO | RECHAZADO | SUSTITUIDO
+    precio_extra: Decimal = Decimal("0")
+
+
 class PedidoItemCreate(BaseModel):
     menu_item_id: int
     variante_id: Optional[int] = None
@@ -11,6 +20,7 @@ class PedidoItemCreate(BaseModel):
     precio_unitario: Decimal
     descuento: Decimal = Decimal("0")
     notas: Optional[str] = None
+    componentes: List[ComponenteElegidoIn] = []
 
 
 class PedidoItemOut(BaseModel):

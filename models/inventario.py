@@ -39,6 +39,8 @@ class Producto(Base):
     # Fiscal
     exento           = Column(Boolean, nullable=False, default=False)
     no_sujeto        = Column(Boolean, nullable=False, default=False)
+    # Tipo restaurante
+    tipo_producto    = Column(String(20), nullable=False, default="PRODUCTO")  # PRODUCTO | COMBO | INSUMO | SERVICIO
     # Control
     activo           = Column(Boolean, nullable=False, default=True)
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
@@ -206,6 +208,54 @@ class ProductoPrecio(Base):
     precio          = Column(Numeric(14, 4), nullable=False)
     activo          = Column(Boolean, nullable=False, default=True)
     updated_at      = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+# ── Recetas de producción ──────────────────────────────────────────────────────
+
+class RecetaItem(Base):
+    """Ingredientes/insumos que componen un producto o plato."""
+    __tablename__ = "receta_items"
+
+    id               = Column(Integer, primary_key=True)
+    tenant_id        = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    producto_id      = Column(Integer, ForeignKey("productos.id"), nullable=False)  # el plato/producto final
+    insumo_id        = Column(Integer, ForeignKey("productos.id"), nullable=False)  # el ingrediente
+    cantidad         = Column(Numeric(14, 4), nullable=False)
+    unidad_medida_id = Column(SmallInteger, ForeignKey("cat_unidad_medida.codigo"))
+    notas            = Column(Text)
+
+
+# ── Combos ─────────────────────────────────────────────────────────────────────
+
+class ComboGrupo(Base):
+    """Grupo de opciones dentro de un combo (ej: 'Bebida', 'Complemento')."""
+    __tablename__ = "combo_grupos"
+
+    id                = Column(Integer, primary_key=True)
+    tenant_id         = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    combo_producto_id = Column(Integer, ForeignKey("productos.id"), nullable=False)
+    nombre            = Column(String(100), nullable=False)
+    descripcion       = Column(String(300))
+    orden             = Column(SmallInteger, nullable=False, default=0)
+    es_requerido      = Column(Boolean, nullable=False, default=False)
+    min_selecciones   = Column(SmallInteger, nullable=False, default=0)
+    max_selecciones   = Column(SmallInteger, nullable=False, default=1)
+    activo            = Column(Boolean, nullable=False, default=True)
+
+
+class ComboGrupoOpcion(Base):
+    """Producto disponible como opción dentro de un grupo de combo."""
+    __tablename__ = "combo_grupo_opciones"
+
+    id           = Column(Integer, primary_key=True)
+    grupo_id     = Column(Integer, ForeignKey("combo_grupos.id"), nullable=False)
+    tenant_id    = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    producto_id  = Column(Integer, ForeignKey("productos.id"), nullable=False)
+    cantidad     = Column(Numeric(14, 4), nullable=False, default=1)
+    es_default   = Column(Boolean, nullable=False, default=False)   # viene incluido por defecto
+    es_opcional  = Column(Boolean, nullable=False, default=True)    # el cliente puede rechazarlo
+    precio_extra = Column(Numeric(14, 4), nullable=False, default=0)
+    activo       = Column(Boolean, nullable=False, default=True)
 
 
 class HistorialPrecioProducto(Base):

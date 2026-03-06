@@ -45,6 +45,21 @@ class PedidoItem(Base):
     num_item = Column(SmallInteger, nullable=False)
 
 
+class PedidoItemComponente(Base):
+    """Decisión del cliente sobre un componente de un combo (incluido / rechazado / sustituido)."""
+    __tablename__ = "pedido_item_componentes"
+
+    id                 = Column(Integer, primary_key=True)
+    pedido_item_id     = Column(Integer, ForeignKey("pedido_items.id"), nullable=False)
+    tenant_id          = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    grupo_id           = Column(Integer, nullable=False)   # combo_grupos.id
+    opcion_original_id = Column(Integer)                   # combo_grupo_opciones.id (la default)
+    opcion_elegida_id  = Column(Integer)                   # combo_grupo_opciones.id (la elegida; NULL=rechazada)
+    cantidad           = Column(Numeric(14, 4), nullable=False, default=1)
+    accion             = Column(String(20), nullable=False, default="INCLUIDO")  # INCLUIDO | RECHAZADO | SUSTITUIDO
+    precio_extra       = Column(Numeric(14, 4), nullable=False, default=0)
+
+
 class PedidoPago(Base):
     __tablename__ = "pedido_pagos"
 

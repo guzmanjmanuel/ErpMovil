@@ -12,6 +12,7 @@ interface Producto {
   descripcion: string | null
   categoria_id: number | null
   tipo_item: number
+  tipo_producto: string
   unidad_medida_id: number
   usa_lotes: boolean
   usa_vencimiento: boolean
@@ -78,6 +79,8 @@ export default function Productos() {
   const [showCategorias, setShowCategorias]     = useState(false)
   const [showListasPrecio, setShowListasPrecio] = useState(false)
   const [showImport, setShowImport]   = useState(false)
+  const [prodReceta, setProdReceta]   = useState<Producto | null>(null)
+  const [prodCombo, setProdCombo]     = useState<Producto | null>(null)
   const [filasImport, setFilasImport] = useState<FilaImport[]>([])
   const [importando, setImportando]   = useState(false)
   const [importResult, setImportResult] = useState<{ importados: number; omitidos: number; errores: string[] } | null>(null)
@@ -426,6 +429,12 @@ export default function Productos() {
                     <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">
                       {labelTipo(p.tipo_item)}
                     </span>
+                    {p.tipo_producto === 'COMBO' && (
+                      <span className="ml-1 text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">Combo</span>
+                    )}
+                    {p.tipo_producto === 'INSUMO' && (
+                      <span className="ml-1 text-xs px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 font-medium">Insumo</span>
+                    )}
                     {p.exento && <span className="ml-1 text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Exento</span>}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">{labelUnidad(p.unidad_medida_id)}</td>
@@ -441,7 +450,25 @@ export default function Productos() {
                       : <span className="text-xs text-gray-300">No</span>}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1.5 flex-wrap">
+                      {p.tipo_producto !== 'SERVICIO' && (
+                        <button
+                          onClick={() => setProdReceta(p)}
+                          className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-medium"
+                          title="Definir receta / ingredientes"
+                        >
+                          Receta
+                        </button>
+                      )}
+                      {p.tipo_producto === 'COMBO' && (
+                        <button
+                          onClick={() => setProdCombo(p)}
+                          className="text-xs px-2 py-1 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 font-medium"
+                          title="Configurar grupos de opciones del combo"
+                        >
+                          Combo
+                        </button>
+                      )}
                       <button
                         onClick={() => { setEditando(p); setShowForm(true) }}
                         className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 font-medium"
@@ -505,6 +532,27 @@ export default function Productos() {
           resultado={importResult}
           onConfirmar={confirmarImport}
           onClose={() => { setShowImport(false); setFilasImport([]) }}
+        />
+      )}
+
+      {/* Modal Receta */}
+      {prodReceta && (
+        <ModalReceta
+          tenantId={tenantId!}
+          producto={prodReceta}
+          productos={productos}
+          unidades={unidades}
+          onClose={() => setProdReceta(null)}
+        />
+      )}
+
+      {/* Modal Combo */}
+      {prodCombo && (
+        <ModalCombo
+          tenantId={tenantId!}
+          producto={prodCombo}
+          productos={productos}
+          onClose={() => setProdCombo(null)}
         />
       )}
     </div>
@@ -718,6 +766,384 @@ function ModalCategorias({
 }
 
 
+// ── Modal Receta ───────────────────────────────────────────────────────────────
+
+interface RecetaItem { id: number; insumo_id: number; insumo_nombre: string; insumo_codigo: string; cantidad: string; unidad_medida_id: number | null; notas: string | null }
+
+function ModalReceta({
+  tenantId, producto, productos, unidades, onClose,
+}: {
+  tenantId: number
+  producto: Producto
+  productos: Producto[]
+  unidades: UnidadMed[]
+  onClose: () => void
+}) {
+  const [items, setItems]       = useState<RecetaItem[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [buscar, setBuscar]     = useState('')
+  const [found, setFound]       = useState<Producto[]>([])
+  const [selected, setSelected] = useState<Producto | null>(null)
+  const [qty, setQty]           = useState('1')
+  const [umed, setUmed]         = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [editQty, setEditQty]   = useState<Record<number, string>>({})
+
+  async function cargar() {
+    setLoading(true)
+    const data = await api.get<RecetaItem[]>(`/tenants/${tenantId}/recetas/${producto.id}`)
+    setItems(data)
+    setLoading(false)
+  }
+
+  useEffect(() => { cargar() }, [])
+
+  function buscarInsumos(q: string) {
+    setBuscar(q)
+    if (!q.trim()) { setFound([]); return }
+    const lower = q.toLowerCase()
+    const existIds = new Set(items.map(i => i.insumo_id))
+    setFound(
+      productos.filter(p =>
+        p.id !== producto.id &&
+        !existIds.has(p.id) &&
+        (p.nombre.toLowerCase().includes(lower) || p.codigo.toLowerCase().includes(lower))
+      ).slice(0, 8)
+    )
+  }
+
+  async function agregar() {
+    if (!selected || !qty || parseFloat(qty) <= 0) return
+    setSaving(true)
+    try {
+      await api.post(`/tenants/${tenantId}/recetas/${producto.id}/items`, {
+        insumo_id: selected.id,
+        cantidad: parseFloat(qty),
+        unidad_medida_id: umed ? parseInt(umed) : null,
+      })
+      setSelected(null); setBuscar(''); setFound([]); setQty('1'); setUmed('')
+      await cargar()
+    } finally { setSaving(false) }
+  }
+
+  async function actualizarQty(item: RecetaItem) {
+    const q = editQty[item.id]
+    if (!q || parseFloat(q) <= 0) return
+    await api.patch(`/tenants/${tenantId}/recetas/items/${item.id}`, {
+      insumo_id: item.insumo_id, cantidad: parseFloat(q),
+      unidad_medida_id: item.unidad_medida_id,
+    })
+    const clone = { ...editQty }
+    delete clone[item.id]
+    setEditQty(clone)
+    await cargar()
+  }
+
+  async function eliminar(id: number) {
+    await api.delete(`/tenants/${tenantId}/recetas/items/${id}`)
+    await cargar()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b">
+          <div>
+            <h3 className="text-base font-bold text-gray-800">Receta — {producto.nombre}</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Ingredientes / insumos que consume este producto</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">x</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="border border-dashed border-gray-200 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Agregar ingrediente</p>
+            <div className="relative">
+              <input
+                value={selected ? `${selected.codigo} — ${selected.nombre}` : buscar}
+                onChange={e => { setSelected(null); buscarInsumos(e.target.value) }}
+                placeholder="Buscar producto/insumo por nombre o código..."
+                className="input text-sm"
+              />
+              {found.length > 0 && !selected && (
+                <div className="absolute top-full left-0 right-0 z-10 bg-white border rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                  {found.map(p => (
+                    <button key={p.id} onClick={() => { setSelected(p); setFound([]); setBuscar('') }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center gap-2">
+                      <span className="font-mono text-xs text-gray-400">{p.codigo}</span>
+                      <span className="text-gray-700">{p.nombre}</span>
+                      {p.tipo_producto === 'INSUMO' && (
+                        <span className="ml-auto text-xs bg-orange-100 text-orange-700 px-1.5 rounded">Insumo</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input type="number" step="0.0001" min="0.0001" value={qty}
+                onChange={e => setQty(e.target.value)} className="input w-28 text-sm" placeholder="Cantidad" />
+              <select value={umed} onChange={e => setUmed(e.target.value)} className="input flex-1 text-sm">
+                <option value="">Unidad heredada del insumo</option>
+                {unidades.map(u => <option key={u.codigo} value={u.codigo}>{u.descripcion}</option>)}
+              </select>
+              <button onClick={agregar} disabled={saving || !selected || !qty || parseFloat(qty) <= 0}
+                className="btn-primary text-sm shrink-0 disabled:opacity-40">
+                {saving ? '...' : '+ Agregar'}
+              </button>
+            </div>
+          </div>
+
+          {loading ? (
+            <p className="text-gray-400 text-sm text-center py-4">Cargando...</p>
+          ) : items.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <p className="text-sm">Sin ingredientes definidos</p>
+              <p className="text-xs mt-1">Sin receta, el sistema descuenta este producto directamente del inventario</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {items.map(item => (
+                <div key={item.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{item.insumo_nombre}</p>
+                    <p className="text-xs text-gray-400">{item.insumo_codigo}</p>
+                  </div>
+                  <input type="number" step="0.0001" min="0.0001"
+                    value={editQty[item.id] ?? item.cantidad}
+                    onChange={e => setEditQty(prev => ({ ...prev, [item.id]: e.target.value }))}
+                    onBlur={() => { if (editQty[item.id]) actualizarQty(item) }}
+                    className="w-24 border border-gray-200 rounded-lg px-2 py-1 text-sm text-right focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
+                  <button onClick={() => eliminar(item.id)}
+                    className="text-red-400 hover:text-red-600 text-lg leading-none shrink-0">x</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t flex justify-end">
+          <button onClick={onClose} className="btn-secondary">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── Modal Combo ────────────────────────────────────────────────────────────────
+
+interface ComboOpcion { id: number; producto_id: number; producto_nombre: string; producto_codigo: string; cantidad: string; es_default: boolean; es_opcional: boolean; precio_extra: string; activo: boolean }
+interface ComboGrupoI { id: number; nombre: string; descripcion: string | null; orden: number; es_requerido: boolean; min_selecciones: number; max_selecciones: number; activo: boolean; opciones: ComboOpcion[] }
+
+function ModalCombo({
+  tenantId, producto, productos, onClose,
+}: {
+  tenantId: number
+  producto: Producto
+  productos: Producto[]
+  onClose: () => void
+}) {
+  const [grupos, setGrupos]     = useState<ComboGrupoI[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [saving, setSaving]     = useState(false)
+  const [nuevoGrupo, setNuevoGrupo] = useState({ nombre: '', es_requerido: false, min_selecciones: 0, max_selecciones: 1 })
+  const [nuevaOpcion, setNuevaOpcion] = useState<Record<number, { prod_id: string; qty: string; es_default: boolean; es_opcional: boolean; precio_extra: string }>>({})
+
+  async function cargar() {
+    setLoading(true)
+    const data = await api.get<ComboGrupoI[]>(`/tenants/${tenantId}/combos/${producto.id}`)
+    setGrupos(data)
+    setLoading(false)
+  }
+
+  useEffect(() => { cargar() }, [])
+
+  async function crearGrupo() {
+    if (!nuevoGrupo.nombre.trim()) return
+    setSaving(true)
+    try {
+      await api.post(`/tenants/${tenantId}/combos/${producto.id}/grupos`, nuevoGrupo)
+      setNuevoGrupo({ nombre: '', es_requerido: false, min_selecciones: 0, max_selecciones: 1 })
+      await cargar()
+    } finally { setSaving(false) }
+  }
+
+  async function eliminarGrupo(grupoId: number) {
+    if (!confirm('¿Eliminar este grupo y todas sus opciones?')) return
+    await api.delete(`/tenants/${tenantId}/combos/grupos/${grupoId}`)
+    await cargar()
+  }
+
+  async function agregarOpcion(grupoId: number) {
+    const op = nuevaOpcion[grupoId]
+    if (!op?.prod_id) return
+    setSaving(true)
+    try {
+      await api.post(`/tenants/${tenantId}/combos/grupos/${grupoId}/opciones`, {
+        producto_id: parseInt(op.prod_id),
+        cantidad: parseFloat(op.qty || '1'),
+        es_default: op.es_default ?? false,
+        es_opcional: op.es_opcional ?? true,
+        precio_extra: parseFloat(op.precio_extra || '0'),
+      })
+      setNuevaOpcion(prev => { const c = { ...prev }; delete c[grupoId]; return c })
+      await cargar()
+    } finally { setSaving(false) }
+  }
+
+  async function eliminarOpcion(opcionId: number) {
+    await api.delete(`/tenants/${tenantId}/combos/opciones/${opcionId}`)
+    await cargar()
+  }
+
+  function setOp(grupoId: number, field: string, val: string | boolean) {
+    setNuevaOpcion(prev => ({
+      ...prev,
+      [grupoId]: { prod_id: '', qty: '1', es_default: false, es_opcional: true, precio_extra: '0', ...prev[grupoId], [field]: val },
+    }))
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b">
+          <div>
+            <h3 className="text-base font-bold text-gray-800">Combo — {producto.nombre}</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Define los grupos de opciones que el cliente puede elegir o sustituir</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">x</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          <div className="border border-dashed border-purple-200 rounded-xl p-4 space-y-3 bg-purple-50/30">
+            <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider">Nuevo grupo de opciones</p>
+            <div className="grid grid-cols-2 gap-2">
+              <input value={nuevoGrupo.nombre}
+                onChange={e => setNuevoGrupo(prev => ({ ...prev, nombre: e.target.value }))}
+                placeholder="Nombre (ej: Bebida, Complemento, Proteina...)"
+                className="input text-sm col-span-2" />
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input type="checkbox" checked={nuevoGrupo.es_requerido}
+                  onChange={e => setNuevoGrupo(prev => ({ ...prev, es_requerido: e.target.checked }))} className="w-4 h-4" />
+                Requerido
+              </label>
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span>Max.</span>
+                <input type="number" min="1" max="10" value={nuevoGrupo.max_selecciones}
+                  onChange={e => setNuevoGrupo(prev => ({ ...prev, max_selecciones: parseInt(e.target.value) || 1 }))}
+                  className="input w-16 text-sm" />
+                <span>selecciones</span>
+              </div>
+            </div>
+            <button onClick={crearGrupo} disabled={saving || !nuevoGrupo.nombre.trim()}
+              className="btn-primary text-sm disabled:opacity-40">
+              {saving ? '...' : '+ Crear grupo'}
+            </button>
+          </div>
+
+          {loading ? (
+            <p className="text-gray-400 text-sm text-center py-4">Cargando...</p>
+          ) : grupos.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <p className="text-sm">Sin grupos definidos</p>
+              <p className="text-xs mt-1">Crea grupos como "Bebida", "Complemento" o "Proteina"</p>
+            </div>
+          ) : grupos.map(grupo => (
+            <div key={grupo.id} className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between bg-gray-50 px-4 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-gray-800 text-sm">{grupo.nombre}</span>
+                  {grupo.es_requerido && (
+                    <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">Requerido</span>
+                  )}
+                  <span className="text-xs text-gray-400">Max. {grupo.max_selecciones}</span>
+                </div>
+                <button onClick={() => eliminarGrupo(grupo.id)}
+                  className="text-red-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50">
+                  Eliminar grupo
+                </button>
+              </div>
+
+              <div className="p-3 space-y-2">
+                {grupo.opciones.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-2">Sin opciones</p>
+                ) : grupo.opciones.map(op => (
+                  <div key={op.id} className="flex items-center gap-2 bg-white border border-gray-100 rounded-lg px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{op.producto_nombre}</p>
+                      <div className="flex gap-2 text-xs text-gray-400 mt-0.5">
+                        <span>{op.producto_codigo}</span>
+                        <span>· Cant. {parseFloat(op.cantidad).toFixed(2)}</span>
+                        {parseFloat(op.precio_extra) > 0 && (
+                          <span className="text-green-600">+${parseFloat(op.precio_extra).toFixed(2)}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0 text-xs">
+                      {op.es_default && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Default</span>}
+                      {op.es_opcional && <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Opcional</span>}
+                    </div>
+                    <button onClick={() => eliminarOpcion(op.id)}
+                      className="text-red-400 hover:text-red-600 text-base leading-none shrink-0 ml-1">x</button>
+                  </div>
+                ))}
+
+                <div className="bg-gray-50 rounded-lg p-2.5 space-y-2 mt-1">
+                  <p className="text-xs text-gray-500 font-medium">Agregar opcion a este grupo</p>
+                  <select value={nuevaOpcion[grupo.id]?.prod_id ?? ''}
+                    onChange={e => setOp(grupo.id, 'prod_id', e.target.value)}
+                    className="input text-xs w-full">
+                    <option value="">Seleccionar producto...</option>
+                    {productos.filter(p => p.id !== producto.id).map(p => (
+                      <option key={p.id} value={p.id}>{p.codigo} — {p.nombre}</option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="number" step="0.01" min="0.01"
+                      value={nuevaOpcion[grupo.id]?.qty ?? '1'}
+                      onChange={e => setOp(grupo.id, 'qty', e.target.value)}
+                      className="input text-xs" placeholder="Cantidad" />
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">+$</span>
+                      <input type="number" step="0.01" min="0"
+                        value={nuevaOpcion[grupo.id]?.precio_extra ?? '0'}
+                        onChange={e => setOp(grupo.id, 'precio_extra', e.target.value)}
+                        className="input text-xs pl-7" placeholder="Extra" />
+                    </div>
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                      <input type="checkbox"
+                        checked={nuevaOpcion[grupo.id]?.es_default ?? false}
+                        onChange={e => setOp(grupo.id, 'es_default', e.target.checked)} className="w-3.5 h-3.5" />
+                      Viene por defecto
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                      <input type="checkbox"
+                        checked={nuevaOpcion[grupo.id]?.es_opcional ?? true}
+                        onChange={e => setOp(grupo.id, 'es_opcional', e.target.checked)} className="w-3.5 h-3.5" />
+                      Cliente puede rechazarlo
+                    </label>
+                  </div>
+                  <button onClick={() => agregarOpcion(grupo.id)}
+                    disabled={saving || !nuevaOpcion[grupo.id]?.prod_id}
+                    className="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40">
+                    + Agregar opcion
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="px-5 py-3 border-t flex justify-end">
+          <button onClick={onClose} className="btn-secondary">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 // ── Modal crear / editar ───────────────────────────────────────────────────────
 
 type FormData = {
@@ -725,6 +1151,7 @@ type FormData = {
   nombre: string
   descripcion: string
   categoria_id: string
+  tipo_producto: string
   tipo_item: string
   unidad_medida_id: string
   metodo_costo: string
@@ -764,6 +1191,7 @@ function ModalProducto({
     nombre:           producto?.nombre          ?? '',
     descripcion:      producto?.descripcion     ?? '',
     categoria_id:     String(producto?.categoria_id ?? ''),
+    tipo_producto:    producto?.tipo_producto   ?? 'PRODUCTO',
     tipo_item:        String(producto?.tipo_item ?? tiposItem[0]?.codigo ?? 1),
     unidad_medida_id: String(producto?.unidad_medida_id ?? 36),
     metodo_costo:     producto?.metodo_costo    ?? 'PROMEDIO',
@@ -811,6 +1239,7 @@ function ModalProducto({
         nombre:           form.nombre.trim(),
         descripcion:      form.descripcion.trim() || null,
         categoria_id:     form.categoria_id ? parseInt(form.categoria_id) : null,
+        tipo_producto:    form.tipo_producto,
         tipo_item:        parseInt(form.tipo_item),
         unidad_medida_id: parseInt(form.unidad_medida_id),
         metodo_costo:     form.metodo_costo,
@@ -874,6 +1303,15 @@ function ModalProducto({
                 <input value={form.codigo} onChange={e => set('codigo', e.target.value)}
                   className="input" placeholder="PROD-001" required disabled={!isNew} />
                 {!isNew && <p className="text-xs text-gray-400 mt-1">El código no se puede cambiar</p>}
+              </div>
+              <div>
+                <label className="label">Tipo de producto</label>
+                <select value={form.tipo_producto} onChange={e => set('tipo_producto', e.target.value)} className="input">
+                  <option value="PRODUCTO">Producto — se vende directamente</option>
+                  <option value="COMBO">Combo — agrupa componentes con opciones</option>
+                  <option value="INSUMO">Insumo — ingrediente de receta</option>
+                  <option value="SERVICIO">Servicio — no afecta inventario</option>
+                </select>
               </div>
               <div className="col-span-1">
                 <label className="label">Categoría / Sub-categoría</label>

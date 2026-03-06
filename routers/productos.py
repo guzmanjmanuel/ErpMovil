@@ -37,6 +37,7 @@ class ProductoCreate(BaseModel):
     nombre: str
     descripcion: Optional[str] = None
     categoria_id: Optional[int] = None
+    tipo_producto: str = "PRODUCTO"             # PRODUCTO | COMBO | INSUMO | SERVICIO
     tipo_item: int                              # CAT-011
     unidad_medida_id: int                       # CAT-014
     usa_lotes: bool = False
@@ -54,6 +55,7 @@ class ProductoUpdate(BaseModel):
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     categoria_id: Optional[int] = None
+    tipo_producto: Optional[str] = None
     tipo_item: Optional[int] = None
     unidad_medida_id: Optional[int] = None
     usa_lotes: Optional[bool] = None
@@ -73,6 +75,7 @@ class ProductoOut(BaseModel):
     nombre: str
     descripcion: Optional[str] = None
     categoria_id: Optional[int] = None
+    tipo_producto: str = "PRODUCTO"
     tipo_item: int
     unidad_medida_id: int
     usa_lotes: bool
