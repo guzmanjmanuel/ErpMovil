@@ -41,3 +41,9 @@ ALTER TABLE productos ALTER COLUMN codigo SET NOT NULL;
 ALTER TABLE productos ALTER COLUMN precio_venta DROP NOT NULL;
 
 COMMIT;
+
+
+-- ── 8. Corregir FK categoria_id: apuntaba a producto_categorias (tabla vieja) ──
+ALTER TABLE productos DROP CONSTRAINT IF EXISTS productos_categoria_id_fkey;
+ALTER TABLE productos ADD CONSTRAINT productos_categoria_id_fkey
+    FOREIGN KEY (categoria_id) REFERENCES categorias_producto(id);
