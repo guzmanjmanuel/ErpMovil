@@ -6,12 +6,10 @@ echo   ErpMovil - Iniciando entorno de desarrollo
 echo ============================================
 echo.
 
-:: Matar procesos previos en los puertos usados
+:: Matar procesos previos
 echo [1/3] Liberando puertos anteriores...
+taskkill /F /IM node.exe /T >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000 " 2^>nul') do (
-    taskkill /F /PID %%a >nul 2>&1
-)
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5173 " 2^>nul') do (
     taskkill /F /PID %%a >nul 2>&1
 )
 
