@@ -178,6 +178,49 @@ def crear_categoria(
     return cat
 
 
+@router.patch("/categorias-producto/{cat_id}", response_model=CategoriaOut)
+def actualizar_categoria(
+    tenant_id: int,
+    cat_id: int,
+    data: CategoriaCreate,
+    db: Session = Depends(get_db),
+    _=Depends(get_tenant_user),
+):
+    cat = db.query(CategoriaProducto).filter(
+        CategoriaProducto.id == cat_id,
+        CategoriaProducto.tenant_id == tenant_id,
+    ).first()
+    if not cat:
+        raise HTTPException(404, "Categoría no encontrada")
+    cat.nombre   = data.nombre
+    cat.padre_id = data.padre_id
+    db.commit()
+    db.refresh(cat)
+    invalidar_categorias(tenant_id)
+    return cat
+
+
+@router.delete("/categorias-producto/{cat_id}", status_code=204)
+def eliminar_categoria(
+    tenant_id: int,
+    cat_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(get_tenant_user),
+):
+    cat = db.query(CategoriaProducto).filter(
+        CategoriaProducto.id == cat_id,
+        CategoriaProducto.tenant_id == tenant_id,
+    ).first()
+    if not cat:
+        raise HTTPException(404, "Categoría no encontrada")
+    # Desvincular productos y sub-categorías huérfanas
+    db.query(Producto).filter(Producto.categoria_id == cat_id).update({"categoria_id": None})
+    db.query(CategoriaProducto).filter(CategoriaProducto.padre_id == cat_id).update({"padre_id": None})
+    cat.activo = False
+    db.commit()
+    invalidar_categorias(tenant_id)
+
+
 # ── Endpoints Productos ────────────────────────────────────────────────────────
 
 @router.get("/productos", response_model=List[ProductoOut])

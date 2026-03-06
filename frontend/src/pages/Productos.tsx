@@ -69,11 +69,18 @@ export default function Productos() {
   const [filtroTipo, setFiltroTipo]   = useState('')
   const [editando, setEditando]       = useState<Producto | null>(null)
   const [showForm, setShowForm]       = useState(false)
+  const [showCategorias, setShowCategorias] = useState(false)
   const [showImport, setShowImport]   = useState(false)
   const [filasImport, setFilasImport] = useState<FilaImport[]>([])
   const [importando, setImportando]   = useState(false)
   const [importResult, setImportResult] = useState<{ importados: number; omitidos: number; errores: string[] } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  async function reloadCategorias() {
+    if (!tenantId) return
+    const cats = await api.get<Categoria[]>(`/tenants/${tenantId}/categorias-producto`)
+    setCategorias(cats)
+  }
 
   async function reload(q?: string) {
     if (!tenantId) return
@@ -235,6 +242,9 @@ export default function Productos() {
           <p className="text-xs text-gray-500 mt-0.5">Catálogo de productos y servicios</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => setShowCategorias(true)} className="btn-secondary text-xs">
+            Categorías
+          </button>
           <button onClick={descargarPlantilla} className="btn-secondary text-xs">
             Plantilla Excel
           </button>
@@ -349,6 +359,16 @@ export default function Productos() {
         </div>
       )}
 
+      {/* Modal categorías */}
+      {showCategorias && (
+        <ModalCategorias
+          tenantId={tenantId!}
+          categorias={categorias}
+          onClose={() => setShowCategorias(false)}
+          onSave={() => reloadCategorias()}
+        />
+      )}
+
       {/* Modal crear/editar */}
       {showForm && (
         <ModalProducto
@@ -372,6 +392,212 @@ export default function Productos() {
           onClose={() => { setShowImport(false); setFilasImport([]) }}
         />
       )}
+    </div>
+  )
+}
+
+
+// ── Modal Categorías ──────────────────────────────────────────────────────────
+
+function ModalCategorias({
+  tenantId, categorias, onClose, onSave,
+}: {
+  tenantId: number
+  categorias: Categoria[]
+  onClose: () => void
+  onSave: () => void
+}) {
+  const [lista, setLista]         = useState<Categoria[]>(categorias)
+  const [editId, setEditId]       = useState<number | null>(null)
+  const [editNombre, setEditNombre] = useState('')
+  const [nuevoRaiz, setNuevoRaiz] = useState('')
+  const [nuevoSub, setNuevoSub]   = useState<Record<number, string>>({})
+  const [saving, setSaving]       = useState(false)
+
+  const raices   = lista.filter(c => c.padre_id === null)
+  const subDe    = (id: number) => lista.filter(c => c.padre_id === id)
+
+  async function refrescar() {
+    const data = await api.get<Categoria[]>(`/tenants/${tenantId}/categorias-producto`)
+    setLista(data)
+    onSave()
+  }
+
+  async function crearRaiz() {
+    if (!nuevoRaiz.trim()) return
+    setSaving(true)
+    await api.post(`/tenants/${tenantId}/categorias-producto`, { nombre: nuevoRaiz.trim(), padre_id: null })
+    setNuevoRaiz('')
+    setSaving(false)
+    refrescar()
+  }
+
+  async function crearSub(padreId: number) {
+    const nombre = nuevoSub[padreId]?.trim()
+    if (!nombre) return
+    setSaving(true)
+    await api.post(`/tenants/${tenantId}/categorias-producto`, { nombre, padre_id: padreId })
+    setNuevoSub(prev => ({ ...prev, [padreId]: '' }))
+    setSaving(false)
+    refrescar()
+  }
+
+  async function guardarEdicion(cat: Categoria) {
+    if (!editNombre.trim()) return
+    setSaving(true)
+    await api.patch(`/tenants/${tenantId}/categorias-producto/${cat.id}`, {
+      nombre: editNombre.trim(), padre_id: cat.padre_id,
+    })
+    setEditId(null)
+    setSaving(false)
+    refrescar()
+  }
+
+  async function eliminar(cat: Categoria) {
+    const msg = subDe(cat.id).length > 0
+      ? `¿Eliminar "${cat.nombre}" y desvincular sus ${subDe(cat.id).length} sub-categorías?`
+      : `¿Eliminar "${cat.nombre}"?`
+    if (!confirm(msg)) return
+    await api.delete(`/tenants/${tenantId}/categorias-producto/${cat.id}`)
+    refrescar()
+  }
+
+  function iniciarEdicion(cat: Categoria) {
+    setEditId(cat.id)
+    setEditNombre(cat.nombre)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b">
+          <div>
+            <h3 className="text-base font-bold text-gray-800">Categorías y sub-categorías</h3>
+            <p className="text-xs text-gray-500 mt-0.5">{raices.length} categorías · {lista.length - raices.length} sub-categorías</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
+        </div>
+
+        {/* Cuerpo scrollable */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+
+          {/* Crear categoría raíz */}
+          <div className="flex gap-2">
+            <input
+              value={nuevoRaiz}
+              onChange={e => setNuevoRaiz(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && crearRaiz()}
+              placeholder="Nueva categoría principal..."
+              className="input flex-1 text-sm"
+            />
+            <button
+              onClick={crearRaiz}
+              disabled={saving || !nuevoRaiz.trim()}
+              className="btn-primary text-sm px-3 disabled:opacity-40"
+            >
+              + Agregar
+            </button>
+          </div>
+
+          {raices.length === 0 && (
+            <p className="text-center text-gray-400 text-sm py-8">Sin categorías. Crea la primera arriba.</p>
+          )}
+
+          {/* Árbol de categorías */}
+          {raices.map(cat => (
+            <div key={cat.id} className="border border-gray-200 rounded-xl overflow-hidden">
+              {/* Fila categoría raíz */}
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50">
+                <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+                {editId === cat.id ? (
+                  <input
+                    autoFocus
+                    value={editNombre}
+                    onChange={e => setEditNombre(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') guardarEdicion(cat); if (e.key === 'Escape') setEditId(null) }}
+                    className="input flex-1 text-sm py-1"
+                  />
+                ) : (
+                  <span className="flex-1 text-sm font-semibold text-gray-800">{cat.nombre}</span>
+                )}
+                <span className="text-xs text-gray-400 shrink-0">{subDe(cat.id).length} sub</span>
+                {editId === cat.id ? (
+                  <div className="flex gap-1">
+                    <button onClick={() => guardarEdicion(cat)} disabled={saving} className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-40">Guardar</button>
+                    <button onClick={() => setEditId(null)} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200">Cancelar</button>
+                  </div>
+                ) : (
+                  <div className="flex gap-1">
+                    <button onClick={() => iniciarEdicion(cat)} className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100">Editar</button>
+                    <button onClick={() => eliminar(cat)} className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">Eliminar</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Sub-categorías */}
+              <div className="divide-y divide-gray-100">
+                {subDe(cat.id).map(sub => (
+                  <div key={sub.id} className="flex items-center gap-2 px-3 py-2 pl-8 bg-white">
+                    <svg className="w-3.5 h-3.5 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    {editId === sub.id ? (
+                      <input
+                        autoFocus
+                        value={editNombre}
+                        onChange={e => setEditNombre(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') guardarEdicion(sub); if (e.key === 'Escape') setEditId(null) }}
+                        className="input flex-1 text-sm py-1"
+                      />
+                    ) : (
+                      <span className="flex-1 text-sm text-gray-700">{sub.nombre}</span>
+                    )}
+                    {editId === sub.id ? (
+                      <div className="flex gap-1">
+                        <button onClick={() => guardarEdicion(sub)} disabled={saving} className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-40">Guardar</button>
+                        <button onClick={() => setEditId(null)} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200">Cancelar</button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1">
+                        <button onClick={() => iniciarEdicion(sub)} className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100">Editar</button>
+                        <button onClick={() => eliminar(sub)} className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">Eliminar</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* Input nueva sub-categoría */}
+                <div className="flex items-center gap-2 px-3 py-2 pl-8 bg-white">
+                  <svg className="w-3.5 h-3.5 text-gray-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <input
+                    value={nuevoSub[cat.id] ?? ''}
+                    onChange={e => setNuevoSub(prev => ({ ...prev, [cat.id]: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && crearSub(cat.id)}
+                    placeholder="Nueva sub-categoría..."
+                    className="input flex-1 text-xs py-1"
+                  />
+                  <button
+                    onClick={() => crearSub(cat.id)}
+                    disabled={saving || !(nuevoSub[cat.id] ?? '').trim()}
+                    className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 disabled:opacity-40 shrink-0"
+                  >
+                    + Sub
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="px-5 py-3 border-t flex justify-end">
+          <button onClick={onClose} className="btn-secondary">Cerrar</button>
+        </div>
+      </div>
     </div>
   )
 }
