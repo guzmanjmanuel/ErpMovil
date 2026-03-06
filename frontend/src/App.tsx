@@ -13,6 +13,7 @@ import Clientes         from './pages/Clientes'
 import Negocios         from './pages/Negocios'
 import Establecimientos from './pages/Establecimientos'
 import Productos        from './pages/Productos'
+import Inventario       from './pages/Inventario'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="negocios"          element={<Negocios />}          />
             <Route path="establecimientos"  element={<Establecimientos />}  />
             <Route path="productos"         element={<Productos />}         />
+            <Route path="inventario"        element={<Inventario />}        />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
