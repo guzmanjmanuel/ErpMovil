@@ -27,9 +27,11 @@ interface Producto {
   updated_at: string
 }
 
-interface Categoria  { id: number; nombre: string; padre_id: number | null }
-interface TipoItem   { codigo: number; descripcion: string }
-interface UnidadMed  { codigo: number; descripcion: string }
+interface Categoria   { id: number; nombre: string; padre_id: number | null }
+interface TipoItem    { codigo: number; descripcion: string }
+interface UnidadMed   { codigo: number; descripcion: string }
+interface ListaPrecio { id: number; nombre: string; descripcion: string | null; es_default: boolean; activo: boolean }
+interface PrecioProd  { id: number; lista_precio_id: number; precio: string }
 
 interface FilaImport {
   _fila: number
@@ -65,6 +67,7 @@ export default function Productos() {
 
   const [productos, setProductos]     = useState<Producto[]>([])
   const [categorias, setCategorias]   = useState<Categoria[]>([])
+  const [listas, setListas]           = useState<ListaPrecio[]>([])
   const [tiposItem, setTiposItem]     = useState<TipoItem[]>([])
   const [unidades, setUnidades]       = useState<UnidadMed[]>([])
   const [loading, setLoading]         = useState(true)
@@ -72,7 +75,8 @@ export default function Productos() {
   const [filtroTipo, setFiltroTipo]   = useState('')
   const [editando, setEditando]       = useState<Producto | null>(null)
   const [showForm, setShowForm]       = useState(false)
-  const [showCategorias, setShowCategorias] = useState(false)
+  const [showCategorias, setShowCategorias]     = useState(false)
+  const [showListasPrecio, setShowListasPrecio] = useState(false)
   const [showImport, setShowImport]   = useState(false)
   const [filasImport, setFilasImport] = useState<FilaImport[]>([])
   const [importando, setImportando]   = useState(false)
@@ -83,6 +87,12 @@ export default function Productos() {
     if (!tenantId) return
     const cats = await api.get<Categoria[]>(`/tenants/${tenantId}/categorias-producto`)
     setCategorias(cats)
+  }
+
+  async function reloadListas() {
+    if (!tenantId) return
+    const data = await api.get<ListaPrecio[]>(`/tenants/${tenantId}/listas-precio`)
+    setListas(data)
   }
 
   async function reload(q?: string) {
@@ -104,10 +114,12 @@ export default function Productos() {
       api.get<Categoria[]>(`/tenants/${tenantId}/categorias-producto`),
       api.get<TipoItem[]>('/catalogos/tipos-item'),
       api.get<UnidadMed[]>('/catalogos/unidades-medida'),
-    ]).then(([cats, tipos, uds]) => {
+      api.get<ListaPrecio[]>(`/tenants/${tenantId}/listas-precio`),
+    ]).then(([cats, tipos, uds, lsts]) => {
       setCategorias(cats)
       setTiposItem(tipos)
       setUnidades(uds)
+      setListas(lsts)
     })
   }, [tenantId])
 
@@ -334,6 +346,9 @@ export default function Productos() {
           <button onClick={() => setShowCategorias(true)} className="btn-secondary text-xs">
             Categorías
           </button>
+          <button onClick={() => setShowListasPrecio(true)} className="btn-secondary text-xs">
+            Listas de precio
+          </button>
           <button onClick={descargarPlantilla} className="btn-secondary text-xs">
             Plantilla Excel
           </button>
@@ -458,12 +473,23 @@ export default function Productos() {
         />
       )}
 
+      {/* Modal listas de precio */}
+      {showListasPrecio && (
+        <ModalListasPrecio
+          tenantId={tenantId!}
+          listas={listas}
+          onClose={() => setShowListasPrecio(false)}
+          onSave={() => reloadListas()}
+        />
+      )}
+
       {/* Modal crear/editar */}
       {showForm && (
         <ModalProducto
           tenantId={tenantId!}
           producto={editando}
           categorias={categorias}
+          listas={listas}
           tiposItem={tiposItem}
           unidades={unidades}
           onClose={() => setShowForm(false)}
@@ -713,11 +739,12 @@ type FormData = {
 }
 
 function ModalProducto({
-  tenantId, producto, categorias, tiposItem, unidades, onClose, onSave,
+  tenantId, producto, categorias, listas, tiposItem, unidades, onClose, onSave,
 }: {
   tenantId: number
   producto: Producto | null
   categorias: Categoria[]
+  listas: ListaPrecio[]
   tiposItem: TipoItem[]
   unidades: UnidadMed[]
   onClose: () => void
@@ -726,6 +753,11 @@ function ModalProducto({
   const isNew = !producto
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+  // precios por lista: { [lista_precio_id]: valor string }
+  const [precios, setPrecios] = useState<Record<number, string>>({})
+
+  const raices = categorias.filter(c => c.padre_id === null)
+  const subsDe = (id: number) => categorias.filter(c => c.padre_id === id)
 
   const [form, setForm] = useState<FormData>({
     codigo:           producto?.codigo          ?? '',
@@ -745,8 +777,24 @@ function ModalProducto({
     usa_vencimiento:  producto?.usa_vencimiento ?? false,
   })
 
+  // Cargar precios existentes si es edición
+  useEffect(() => {
+    if (!producto) return
+    api.get<PrecioProd[]>(`/tenants/${tenantId}/productos/${producto.id}/precios`)
+      .then(data => {
+        const map: Record<number, string> = {}
+        data.forEach(p => { map[p.lista_precio_id] = parseFloat(p.precio).toFixed(4) })
+        setPrecios(map)
+      })
+      .catch(() => {})
+  }, [producto?.id])
+
   function set(field: keyof FormData, value: string | boolean) {
     setForm(prev => ({ ...prev, [field]: value }))
+  }
+
+  function setPrecio(listaId: number, valor: string) {
+    setPrecios(prev => ({ ...prev, [listaId]: valor }))
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -775,11 +823,27 @@ function ModalProducto({
         usa_lotes:        form.usa_lotes,
         usa_vencimiento:  form.usa_vencimiento,
       }
+
+      let prodId = producto?.id
       if (isNew) {
-        await api.post(`/tenants/${tenantId}/productos`, payload)
+        const created = await api.post<Producto>(`/tenants/${tenantId}/productos`, payload)
+        prodId = created.id
       } else {
-        await api.patch(`/tenants/${tenantId}/productos/${producto.id}`, payload)
+        await api.patch(`/tenants/${tenantId}/productos/${prodId}`, payload)
       }
+
+      // Guardar precios por lista
+      await Promise.all(
+        Object.entries(precios)
+          .filter(([, v]) => v !== '' && !isNaN(parseFloat(v)))
+          .map(([listaId, precio]) =>
+            api.put(`/tenants/${tenantId}/productos/${prodId}/precios`, {
+              lista_precio_id: Number(listaId),
+              precio: parseFloat(precio),
+            })
+          )
+      )
+
       onSave()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al guardar'
@@ -812,10 +876,15 @@ function ModalProducto({
                 {!isNew && <p className="text-xs text-gray-400 mt-1">El código no se puede cambiar</p>}
               </div>
               <div className="col-span-1">
-                <label className="label">Categoría</label>
+                <label className="label">Categoría / Sub-categoría</label>
                 <select value={form.categoria_id} onChange={e => set('categoria_id', e.target.value)} className="input">
                   <option value="">Sin categoría</option>
-                  {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  {raices.map(raiz => [
+                    <option key={raiz.id} value={raiz.id}>📁 {raiz.nombre}</option>,
+                    ...subsDe(raiz.id).map(sub =>
+                      <option key={sub.id} value={sub.id}>　└ {sub.nombre}</option>
+                    ),
+                  ])}
                 </select>
               </div>
               <div className="col-span-2">
@@ -850,12 +919,52 @@ function ModalProducto({
             </div>
           </section>
 
-          {/* Precios */}
+          {/* Precios por lista */}
           <section>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Precios referencia</h4>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              Precios por lista
+              {listas.length === 0 && (
+                <span className="ml-2 normal-case font-normal text-gray-400">
+                  — no hay listas creadas aún
+                </span>
+              )}
+            </h4>
+            {listas.length > 0 && (
+              <div className="grid grid-cols-2 gap-3">
+                {listas.map(lista => (
+                  <div key={lista.id}>
+                    <label className="label flex items-center gap-1.5">
+                      {lista.nombre}
+                      {lista.es_default && (
+                        <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
+                          default
+                        </span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={precios[lista.id] ?? ''}
+                        onChange={e => setPrecio(lista.id, e.target.value)}
+                        className="input pl-7"
+                        placeholder="0.0000"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Precio / costo referencia */}
+          <section>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Referencia general</h4>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label">Precio de venta</label>
+                <label className="label">Precio de venta referencia</label>
                 <input type="number" step="0.0001" min="0" value={form.precio_venta}
                   onChange={e => set('precio_venta', e.target.value)} className="input" placeholder="0.00" />
               </div>
@@ -1046,6 +1155,178 @@ function ModalImport({
               <button onClick={onClose} className="btn-primary">Cerrar</button>
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── Modal Listas de Precio ─────────────────────────────────────────────────────
+
+function ModalListasPrecio({
+  tenantId, listas, onClose, onSave,
+}: {
+  tenantId: number
+  listas: ListaPrecio[]
+  onClose: () => void
+  onSave: () => void
+}) {
+  const [lista, setLista]           = useState<ListaPrecio[]>(listas)
+  const [editId, setEditId]         = useState<number | null>(null)
+  const [editNombre, setEditNombre] = useState('')
+  const [editDesc, setEditDesc]     = useState('')
+  const [editDefault, setEditDefault] = useState(false)
+  const [nuevoNombre, setNuevoNombre] = useState('')
+  const [nuevoDesc, setNuevoDesc]   = useState('')
+  const [nuevoDefault, setNuevoDefault] = useState(false)
+  const [saving, setSaving]         = useState(false)
+
+  async function refrescar() {
+    const data = await api.get<ListaPrecio[]>(`/tenants/${tenantId}/listas-precio`)
+    setLista(data)
+    onSave()
+  }
+
+  async function crear() {
+    if (!nuevoNombre.trim()) return
+    setSaving(true)
+    await api.post(`/tenants/${tenantId}/listas-precio`, {
+      nombre: nuevoNombre.trim(),
+      descripcion: nuevoDesc.trim() || null,
+      es_default: nuevoDefault,
+    })
+    setNuevoNombre(''); setNuevoDesc(''); setNuevoDefault(false)
+    setSaving(false)
+    refrescar()
+  }
+
+  async function guardar(lp: ListaPrecio) {
+    if (!editNombre.trim()) return
+    setSaving(true)
+    await api.patch(`/tenants/${tenantId}/listas-precio/${lp.id}`, {
+      nombre: editNombre.trim(),
+      descripcion: editDesc.trim() || null,
+      es_default: editDefault,
+    })
+    setEditId(null)
+    setSaving(false)
+    refrescar()
+  }
+
+  async function eliminar(lp: ListaPrecio) {
+    if (!confirm(`¿Eliminar lista "${lp.nombre}"? Los precios asignados se perderán.`)) return
+    await api.delete(`/tenants/${tenantId}/listas-precio/${lp.id}`)
+    refrescar()
+  }
+
+  function iniciarEdicion(lp: ListaPrecio) {
+    setEditId(lp.id)
+    setEditNombre(lp.nombre)
+    setEditDesc(lp.descripcion ?? '')
+    setEditDefault(lp.es_default)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b">
+          <div>
+            <h3 className="text-base font-bold text-gray-800">Listas de precio</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Mayoreo, Retail, Distribuidores, etc.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+
+          {/* Crear nueva lista */}
+          <div className="border border-dashed border-gray-200 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Nueva lista</p>
+            <input
+              value={nuevoNombre}
+              onChange={e => setNuevoNombre(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && crear()}
+              placeholder="Ej: Mayoreo, Retail, Distribuidor..."
+              className="input text-sm w-full"
+            />
+            <input
+              value={nuevoDesc}
+              onChange={e => setNuevoDesc(e.target.value)}
+              placeholder="Descripción opcional"
+              className="input text-sm w-full"
+            />
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={nuevoDefault} onChange={e => setNuevoDefault(e.target.checked)} className="w-4 h-4 rounded" />
+                <span className="text-sm text-gray-700">Lista por defecto</span>
+              </label>
+              <button
+                onClick={crear}
+                disabled={saving || !nuevoNombre.trim()}
+                className="btn-primary text-sm px-3 disabled:opacity-40"
+              >
+                + Agregar
+              </button>
+            </div>
+          </div>
+
+          {lista.length === 0 && (
+            <p className="text-center text-gray-400 text-sm py-6">Sin listas creadas.</p>
+          )}
+
+          {/* Lista existente */}
+          {lista.map(lp => (
+            <div key={lp.id} className="border border-gray-200 rounded-xl overflow-hidden">
+              {editId === lp.id ? (
+                <div className="p-3 space-y-2 bg-indigo-50">
+                  <input
+                    autoFocus
+                    value={editNombre}
+                    onChange={e => setEditNombre(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') guardar(lp); if (e.key === 'Escape') setEditId(null) }}
+                    className="input text-sm w-full"
+                  />
+                  <input
+                    value={editDesc}
+                    onChange={e => setEditDesc(e.target.value)}
+                    placeholder="Descripción"
+                    className="input text-sm w-full"
+                  />
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={editDefault} onChange={e => setEditDefault(e.target.checked)} className="w-4 h-4 rounded" />
+                      <span className="text-sm text-gray-700">Lista por defecto</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <button onClick={() => guardar(lp)} disabled={saving} className="text-xs px-3 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40">Guardar</button>
+                      <button onClick={() => setEditId(null)} className="text-xs px-3 py-1 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">Cancelar</button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm text-gray-800">{lp.nombre}</span>
+                      {lp.es_default && (
+                        <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">default</span>
+                      )}
+                    </div>
+                    {lp.descripcion && <p className="text-xs text-gray-400 truncate">{lp.descripcion}</p>}
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => iniciarEdicion(lp)} className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100">Editar</button>
+                    <button onClick={() => eliminar(lp)} className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">Eliminar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="px-5 py-3 border-t flex justify-end">
+          <button onClick={onClose} className="btn-secondary">Cerrar</button>
         </div>
       </div>
     </div>

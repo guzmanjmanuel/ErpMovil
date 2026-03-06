@@ -562,6 +562,24 @@ def crear_lista_precio(
     return lp
 
 
+@router.delete("/listas-precio/{lista_id}", status_code=204)
+def eliminar_lista_precio(
+    tenant_id: int,
+    lista_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(get_tenant_user),
+):
+    lp = db.query(ListaPrecio).filter(
+        ListaPrecio.id == lista_id,
+        ListaPrecio.tenant_id == tenant_id,
+    ).first()
+    if not lp:
+        raise HTTPException(404, "Lista de precio no encontrada")
+    lp.activo = False
+    db.commit()
+    invalidar_listas_precio(tenant_id)
+
+
 @router.patch("/listas-precio/{lista_id}", response_model=ListaPrecioOut)
 def actualizar_lista_precio(
     tenant_id: int,
