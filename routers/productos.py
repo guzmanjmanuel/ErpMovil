@@ -671,7 +671,7 @@ def establecer_precio(
         lista_precio_id=data.lista_precio_id,
         precio_anterior=precio_anterior,
         precio_nuevo=data.precio,
-        usuario_id=current_user.id,
+        usuario_id=current_user.usuario_id,
         motivo=data.motivo,
     )
     db.add(hist)
