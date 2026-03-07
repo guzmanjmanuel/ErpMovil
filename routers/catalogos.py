@@ -4,7 +4,11 @@ from typing import List
 from pydantic import BaseModel
 
 from database import get_db
-from models.catalogo import CatActividadEconomica, CatTipoItem, CatUnidadMedida, Departamento, Municipio
+from models.catalogo import (
+    CatActividadEconomica, CatTipoItem, CatUnidadMedida,
+    Departamento, Municipio,
+    CatCondicionOperacion, CatFormaPago,
+)
 from cache.manager import global_cache, CacheKeys, invalidar_catalogo
 
 router = APIRouter(prefix="/catalogos", tags=["Catálogos"])
@@ -38,6 +42,21 @@ class TipoItemOut(BaseModel):
 class UnidadMedidaOut(BaseModel):
     codigo: int
     descripcion: str
+    model_config = {"from_attributes": True}
+
+
+class CondicionOperacionOut(BaseModel):
+    """CAT-016 — Condición de la Operación."""
+    codigo: int
+    descripcion: str
+    model_config = {"from_attributes": True}
+
+
+class FormaPagoOut(BaseModel):
+    """CAT-017 — Forma de Pago."""
+    codigo: str
+    descripcion: str
+    requiere_referencia: bool
     model_config = {"from_attributes": True}
 
 
@@ -103,6 +122,30 @@ def listar_unidades_medida(db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/condiciones-operacion", response_model=List[CondicionOperacionOut])
+def listar_condiciones_operacion(db: Session = Depends(get_db)):
+    """CAT-016 — Condición de la Operación requerida en DTE."""
+    cached = global_cache.get(CacheKeys.CONDICIONES_OPERACION)
+    if cached is not None:
+        return cached
+    rows = db.query(CatCondicionOperacion).order_by(CatCondicionOperacion.codigo).all()
+    result = [CondicionOperacionOut.model_validate(r) for r in rows]
+    global_cache.set(CacheKeys.CONDICIONES_OPERACION, result)
+    return result
+
+
+@router.get("/formas-pago", response_model=List[FormaPagoOut])
+def listar_formas_pago(db: Session = Depends(get_db)):
+    """CAT-017 — Forma de Pago requerida en DTE y en pagos de pedidos."""
+    cached = global_cache.get(CacheKeys.FORMAS_PAGO)
+    if cached is not None:
+        return cached
+    rows = db.query(CatFormaPago).order_by(CatFormaPago.codigo).all()
+    result = [FormaPagoOut.model_validate(r) for r in rows]
+    global_cache.set(CacheKeys.FORMAS_PAGO, result)
+    return result
+
+
 # ── Endpoint admin: forzar invalidación de catálogos ─────────────────────────
 @router.post("/cache/invalidar", tags=["Admin"], status_code=204)
 def invalidar_cache_catalogos():
@@ -110,5 +153,6 @@ def invalidar_cache_catalogos():
     for key in [
         CacheKeys.TIPO_ITEM, CacheKeys.UNIDADES_MEDIDA,
         CacheKeys.DEPARTAMENTOS, CacheKeys.MUNICIPIOS, CacheKeys.ACTIVIDADES,
+        CacheKeys.CONDICIONES_OPERACION, CacheKeys.FORMAS_PAGO,
     ]:
         invalidar_catalogo(key)

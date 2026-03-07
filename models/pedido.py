@@ -20,6 +20,8 @@ class Pedido(Base):
     subtotal = Column(Numeric, nullable=False, default=0)
     descuento = Column(Numeric, nullable=False, default=0)
     total = Column(Numeric, nullable=False, default=0)
+    # CAT-016: 1=Contado, 2=A crédito, 3=Otro — requerido para DTE
+    condicion_operacion = Column(SmallInteger, ForeignKey("cat_condicion_operacion.codigo"), nullable=False, default=1)
     dte_id = Column(Integer)
     numero_pedido = Column(String(20))
     notas = Column(String(500))
@@ -67,7 +69,10 @@ class PedidoPago(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     pedido_id = Column(Integer, ForeignKey("pedidos.id"), nullable=False)
     turno_id = Column(Integer, ForeignKey("turnos_caja.id"))
-    forma_pago = Column(String(20), nullable=False)     # efectivo / tarjeta / qr
+    # CAT-017: "01"=Billetes y monedas, "02"=Tarjeta Débito, "03"=Tarjeta Crédito, etc.
+    forma_pago = Column(String(2), nullable=False)
+    # Solo requerido cuando forma_pago = "99" (Otros)
+    forma_pago_referencia = Column(String(200))
     monto = Column(Numeric, nullable=False)
     monto_recibido = Column(Numeric)
     cambio = Column(Numeric)

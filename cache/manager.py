@@ -1,8 +1,9 @@
 """
 Cache en memoria de dos capas:
 
-Capa 1 — GlobalCache:  catálogos estáticos (CAT-011, CAT-014, departamentos, municipios,
-                        actividades). TTL 24h. Compartido entre todos los tenants.
+Capa 1 — GlobalCache:  catálogos estáticos (CAT-011, CAT-014, CAT-016, CAT-017,
+                        departamentos, municipios, actividades). TTL 24h.
+                        Compartido entre todos los tenants.
                         Se invalida manualmente cuando un admin edita un catálogo.
 
 Capa 2 — TenantCache:  datos específicos de un tenant (listas_precio, categorías,
@@ -20,14 +21,10 @@ logger = logging.getLogger("cache")
 
 
 class TTLCache:
-    """
-    Cache simple con TTL, thread-safe.
-    No usa cachetools para evitar dependencias externas, aunque cachetools
-    está disponible; esta implementación es más fácil de controlar.
-    """
+    """Cache simple con TTL, thread-safe."""
 
     def __init__(self, ttl_seconds: int, name: str = "cache"):
-        self._store: dict[str, tuple[object, float]] = {}   # key → (value, expires_at)
+        self._store: dict[str, tuple[object, float]] = {}
         self._ttl = ttl_seconds
         self._lock = threading.RLock()
         self._name = name
@@ -55,7 +52,6 @@ class TTLCache:
             return False
 
     def delete_prefix(self, prefix: str) -> int:
-        """Elimina todas las claves que empiezan con `prefix`."""
         with self._lock:
             keys = [k for k in self._store if k.startswith(prefix)]
             for k in keys:
@@ -82,31 +78,21 @@ class TTLCache:
 
 # ── Instancias globales ────────────────────────────────────────────────────────
 
-# Catálogos estáticos: 24 horas
-global_cache = TTLCache(ttl_seconds=86_400, name="global")
-
-# Datos por tenant: 5 minutos
-tenant_cache = TTLCache(ttl_seconds=300, name="tenant")
+global_cache = TTLCache(ttl_seconds=86_400, name="global")   # 24 horas
+tenant_cache = TTLCache(ttl_seconds=300, name="tenant")      # 5 minutos
 
 
 # ── Claves de caché ────────────────────────────────────────────────────────────
-#
-# Convención:
-#   global_cache  →  "cat:tipo_item", "cat:unidades_medida", "cat:departamentos",
-#                    "cat:municipios", "cat:actividades"
-#
-#   tenant_cache  →  "t{tenant_id}:listas_precio"
-#                    "t{tenant_id}:categorias"
-#                    "t{tenant_id}:precios:{producto_id}"
-#                    "t{tenant_id}:stock:{producto_id}"
 
 class CacheKeys:
-    # Globales
-    TIPO_ITEM       = "cat:tipo_item"
-    UNIDADES_MEDIDA = "cat:unidades_medida"
-    DEPARTAMENTOS   = "cat:departamentos"
-    MUNICIPIOS      = "cat:municipios"      # todos
-    ACTIVIDADES     = "cat:actividades"
+    # Catálogos globales (estáticos)
+    TIPO_ITEM              = "cat:tipo_item"
+    UNIDADES_MEDIDA        = "cat:unidades_medida"
+    DEPARTAMENTOS          = "cat:departamentos"
+    MUNICIPIOS             = "cat:municipios"
+    ACTIVIDADES            = "cat:actividades"
+    CONDICIONES_OPERACION  = "cat:condiciones_operacion"   # CAT-016
+    FORMAS_PAGO            = "cat:formas_pago"             # CAT-017
 
     @staticmethod
     def municipios_depto(depto: str) -> str:
@@ -142,16 +128,12 @@ def invalidar_precios_producto(tenant_id: int, producto_id: int | None = None) -
     if producto_id is not None:
         tenant_cache.delete(CacheKeys.precios_producto(tenant_id, producto_id))
     else:
-        # Invalida todos los precios del tenant
         tenant_cache.delete_prefix(f"t{tenant_id}:precios:")
 
 def invalidar_tenant(tenant_id: int) -> None:
-    """Invalida TODO el cache de un tenant (útil en operaciones masivas)."""
     tenant_cache.delete_prefix(f"t{tenant_id}:")
 
 def invalidar_catalogo(key: str) -> None:
-    """Invalida un catálogo global (útil si un admin edita el catálogo)."""
     global_cache.delete(key)
-    # También invalidar variantes (ej. municipios por departamento)
     if key == CacheKeys.MUNICIPIOS:
         global_cache.delete_prefix("cat:municipios:")

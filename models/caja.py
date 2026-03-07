@@ -28,8 +28,10 @@ class CajaMovimiento(Base):
     id = Column(Integer, primary_key=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     turno_id = Column(Integer, ForeignKey("turnos_caja.id"), nullable=False)
-    tipo = Column(String(20), nullable=False)           # ingreso / egreso
-    concepto = Column(String(200), nullable=False)
+    tipo = Column(String(20), nullable=False)       # ingreso / egreso
+    motivo = Column(String(200), nullable=False)    # nombre real en la BD
     monto = Column(Numeric, nullable=False)
+    referencia = Column(String(200))
+    notas = Column(String(500))
     usuario_id = Column(Integer, ForeignKey("usuarios.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

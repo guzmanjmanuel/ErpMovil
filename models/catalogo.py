@@ -1,4 +1,4 @@
-from sqlalchemy import Column, SmallInteger, String
+from sqlalchemy import Column, SmallInteger, String, Boolean
 from database import Base
 
 
@@ -36,3 +36,20 @@ class CatUnidadMedida(Base):
 
     codigo      = Column(SmallInteger, primary_key=True)
     descripcion = Column(String(100), nullable=False)
+
+
+class CatCondicionOperacion(Base):
+    """CAT-016 — Condición de la Operación (requerido en DTE)."""
+    __tablename__ = "cat_condicion_operacion"
+
+    codigo      = Column(SmallInteger, primary_key=True)   # 1, 2, 3
+    descripcion = Column(String(50), nullable=False)       # Contado, A crédito, Otro
+
+
+class CatFormaPago(Base):
+    """CAT-017 — Forma de Pago (requerido en DTE)."""
+    __tablename__ = "cat_forma_pago"
+
+    codigo              = Column(String(2), primary_key=True)   # "01" … "99"
+    descripcion         = Column(String(100), nullable=False)
+    requiere_referencia = Column(Boolean, nullable=False, default=False)  # True solo para código 99
